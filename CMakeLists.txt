@@ -27,13 +27,14 @@ set(CT_Clang_INSTALL_DIR "${CT_CLANG_PACKAGE_DIR}" CACHE PATH
 # 1. VERIFY CLANG INSTALLATION DIR
 #===============================================================================
 set(CT_LLVM_INCLUDE_DIR "${CT_Clang_INSTALL_DIR}/include/llvm")
+set(CT_LLVM_INCLUDE_DIR "/usr/lib/llvm-20")
 if(NOT EXISTS "${CT_LLVM_INCLUDE_DIR}")
 message(FATAL_ERROR
   " CT_Clang_INSTALL_DIR (${CT_LLVM_INCLUDE_DIR}) is invalid.")
 endif()
 
 set(CT_LLVM_CMAKE_FILE
-  "${CT_Clang_INSTALL_DIR}/lib/cmake/clang/ClangConfig.cmake")
+  "${CT_Clang_INSTALL_DIR}/lib/cmake/clang-20/ClangConfig.cmake")
 if(NOT EXISTS "${CT_LLVM_CMAKE_FILE}")
 message(FATAL_ERROR
   " CT_LLVM_CMAKE_FILE (${CT_LLVM_CMAKE_FILE}) is invalid.")
