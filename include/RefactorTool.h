@@ -19,7 +19,7 @@ public:
 
 private:
     // 1. Невиртуальные деструкторы
-    void handle_nv_dtor(const clang::CXXDestructorDecl *Dtor, clang::DiagnosticsEngine &Diag, clang::SourceManager &SM);
+    void handle_nv_dtor(const clang::CXXRecordDecl *Base, clang::DiagnosticsEngine &Diag, clang::SourceManager &SM);
 
     // 2. Методы без override
     void handle_miss_override(const clang::CXXMethodDecl *Method, clang::DiagnosticsEngine &Diag,

@@ -23,8 +23,8 @@ void RefactorHandler::run(const MatchFinder::MatchResult &Result) {
     auto &Diag = Result.Context->getDiagnostics();
     auto &SM = *Result.SourceManager;  // Получаем SourceManager для проверки isInMainFile
 
-    if (const auto *Dtor = Result.Nodes.getNodeAs<CXXDestructorDecl>("nonVirtualDtor")) {
-        handle_nv_dtor(Dtor, Diag, SM);
+    if (const auto *Base = Result.Nodes.getNodeAs<CXXRecordDecl>("baseClass")) {
+        handle_nv_dtor(Base, Diag, SM);
     }
 
     if (const auto *Method = Result.Nodes.getNodeAs<CXXMethodDecl>("missingOverride")) {
@@ -36,25 +36,76 @@ void RefactorHandler::run(const MatchFinder::MatchResult &Result) {
     }
 }
 
-void RefactorHandler::handle_nv_dtor(const CXXDestructorDecl *Dtor, DiagnosticsEngine &Diag, SourceManager &SM) {
-    if (!SM.isInMainFile(Dtor->getLocation())) {
+void RefactorHandler::handle_nv_dtor(const clang::CXXRecordDecl *Base, clang::DiagnosticsEngine &Diag,
+                                     clang::SourceManager &SM) {
+    if (!Base || !Base->isThisDeclarationADefinition())
         return;
-    }
-    unsigned LocationHash = Dtor->getLocation().getHashValue();
-    if (virtualDtorLocations.find(LocationHash) != virtualDtorLocations.end()) {
+
+    const CXXDestructorDecl *Dtor = Base->getDestructor();
+    if (!Dtor)
         return;
+
+    if (Dtor->isVirtual())
+        return;
+
+    if (!SM.isInMainFile(Base->getBeginLoc()))
+        return;
+
+    SourceLocation ClassBegin = Base->getBeginLoc();
+    SourceLocation ClassEnd = Base->getEndLoc();
+
+    if (!ClassBegin.isValid() || !ClassEnd.isValid())
+        return;
+
+    FileID FID = SM.getFileID(ClassBegin);
+    StringRef Buffer = SM.getBufferData(FID);
+    const char *BufStart = Buffer.data();
+    const char *BufEnd = BufStart + Buffer.size();
+
+    const char *StartPtr = SM.getCharacterData(ClassBegin);
+    const char *EndPtr = SM.getCharacterData(ClassEnd);
+    if (!StartPtr || !EndPtr)
+        return;
+
+    if (StartPtr < BufStart)
+        StartPtr = BufStart;
+    if (EndPtr > BufEnd)
+        EndPtr = BufEnd;
+
+    std::string needle = "~" + Base->getNameAsString();
+
+    const char *found = nullptr;
+    // Find "~ClassName"
+    const char *p = StartPtr;
+    while (p + (ptrdiff_t)needle.size() <= EndPtr) {
+        if (p[0] == '~') {
+            if (strncmp(p, needle.c_str(), needle.size()) == 0) {
+                found = p;
+                break;
+            }
+        }
+        ++p;
     }
 
-    SourceLocation InsertLoc = Dtor->getLocation();
-    if (!InsertLoc.isValid()) {
-        return;
+    SourceLocation TildeLoc;
+    if (found) {
+        // вычисляем SourceLocation от смещения относительно начала буфера
+        ptrdiff_t offset = found - SM.getCharacterData(ClassBegin);
+        TildeLoc = ClassBegin.getLocWithOffset(offset);
+        TildeLoc = SM.getSpellingLoc(TildeLoc);
     }
 
-    Rewrite.InsertTextBefore(InsertLoc, "virtual ");
-    virtualDtorLocations.insert(LocationHash);
-    const unsigned DiagID =
-        Diag.getCustomDiagID(DiagnosticsEngine::Remark, "Добавлен virtual к деструктору базового класса");
-    Diag.Report(Dtor->getLocation(), DiagID);
+    if (!TildeLoc.isValid())
+        return;
+
+    unsigned LocHash = TildeLoc.getHashValue();
+    if (virtualDtorLocations.count(LocHash))
+        return;
+    virtualDtorLocations.insert(LocHash);
+    Rewrite.InsertTextBefore(TildeLoc, "virtual ");
+    const unsigned DiagID = Diag.getCustomDiagID(DiagnosticsEngine::Remark, "Добавлен виртуальный дестурктор в '%0'");
+    auto DB = Diag.Report(Dtor->getLocation(), DiagID);
+    DB << Base->getNameAsString();
 }
 
 SourceLocation RefactorHandler::findClosingParenAfter(SourceLocation start, SourceManager &SM) {
@@ -175,14 +226,10 @@ void RefactorHandler::handle_crange_for(const VarDecl *LoopVar, DiagnosticsEngin
     }
 */
 auto NvDtorMatcher() {
-    return cxxDestructorDecl(unless(isVirtual()),
-                             hasParent(cxxRecordDecl(hasDescendant(cxxRecordDecl()),  // Класс имеет наследников
-                                                     unless(isFinal())                // Исключаем final классы
-                                                     )))
-        .bind("classDecl");
+    return cxxRecordDecl(isDerivedFrom(cxxRecordDecl(unless(isFinal())).bind("baseClass"))).bind("derivedClass");
 }
 
-auto NoOverrideMatcher() { return cxxMethodDecl(isOverride(), unless(isImplicit())).bind("methodDecl"); }
+auto NoOverrideMatcher() { return cxxMethodDecl(isOverride(), unless(isImplicit())).bind("missingOverride"); }
 
 auto NoRefConstVarInRangeLoopMatcher() {
     return varDecl(hasParent(cxxForRangeStmt()), hasType(isConstQualified()), unless(hasType(referenceType())),
