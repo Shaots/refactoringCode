@@ -31,7 +31,7 @@ void RefactorHandler::run(const MatchFinder::MatchResult &Result) {
         handle_miss_override(Method, Diag, SM);
     }
 
-    if (const auto *LoopVar = Result.Nodes.getNodeAs<VarDecl>("VarDecl")) {
+    if (const auto *LoopVar = Result.Nodes.getNodeAs<VarDecl>("loopVar")) {
         handle_crange_for(LoopVar, Diag, SM);
     }
 }
@@ -113,11 +113,56 @@ void RefactorHandler::handle_miss_override(const CXXMethodDecl *Method, Diagnost
     DB << Method->getNameAsString();
 }
 
-// todo: необходимо реализовать обработку случая отсутствие & в range-for
+bool RefactorHandler::shouldAddReference(const VarDecl *LoopVar) {
+    if (!LoopVar->getType().isConstQualified()) {
+        return false;
+    }
+
+    if (LoopVar->getType()->isReferenceType()) {
+        return false;
+    }
+
+    QualType baseType = LoopVar->getType().getNonReferenceType().getCanonicalType();
+    if (baseType->isFundamentalType() || baseType->isPointerType()) {
+        return false;
+    }
+
+    return true;
+}
+
+SourceLocation RefactorHandler::findTypeEndLocation(const VarDecl *LoopVar, SourceManager &SM) {
+    TypeSourceInfo *typeSourceInfo = LoopVar->getTypeSourceInfo();
+    if (!typeSourceInfo) {
+        return SourceLocation();
+    }
+
+    TypeLoc typeLoc = typeSourceInfo->getTypeLoc();
+    if (typeLoc.isNull()) {
+        return SourceLocation();
+    }
+
+    SourceLocation typeEnd = typeLoc.getEndLoc();
+    if (!typeEnd.isValid()) {
+        return SourceLocation();
+    }
+    return Lexer::getLocForEndOfToken(typeEnd, 0, SM, Rewrite.getLangOpts());
+}
+
 void RefactorHandler::handle_crange_for(const VarDecl *LoopVar, DiagnosticsEngine &Diag, SourceManager &SM) {
-    // Реализуйте Ваш код ниже
-    const unsigned DiagID = Diag.getCustomDiagID(DiagnosticsEngine::Remark, "Объявлена переменная");
-    Diag.Report(LoopVar->getLocation(), DiagID);
+    if (!SM.isInMainFile(LoopVar->getLocation())) {
+        return;
+    }
+    if (!shouldAddReference(LoopVar)) {
+        return;
+    }
+    SourceLocation InsertLoc = findTypeEndLocation(LoopVar, SM);
+    if (!InsertLoc.isValid()) {
+        return;
+    }
+    Rewrite.InsertTextAfter(InsertLoc, "&");
+    const unsigned DiagID = Diag.getCustomDiagID(DiagnosticsEngine::Remark, "Добавлена ссылка к переменной цикла '%0'");
+    auto DB = Diag.Report(LoopVar->getLocation(), DiagID);
+    DB << LoopVar->getNameAsString();
 }
 
 // todo: ниже необходимо реализовать матчеры для поиска узлов AST
@@ -140,8 +185,10 @@ auto NvDtorMatcher() {
 auto NoOverrideMatcher() { return cxxMethodDecl(isOverride(), unless(isImplicit())).bind("methodDecl"); }
 
 auto NoRefConstVarInRangeLoopMatcher() {
-    // todo: замените код ниже, на свою реализацию, необходимо реализовать матчеры для поиска range-for без &
-    return varDecl().bind("VarDecl");
+    return varDecl(hasParent(cxxForRangeStmt()), hasType(isConstQualified()), unless(hasType(referenceType())),
+                   unless(hasType(isInteger())), unless(hasType(realFloatingPointType())),
+                   unless(hasType(booleanType())))
+        .bind("loopVar");
 }
 
 // Конструктор принимает Rewriter для изменения кода.

@@ -28,6 +28,8 @@ private:
     // 3. range-for без &
     void handle_crange_for(const clang::VarDecl *LoopVar, clang::DiagnosticsEngine &Diag, clang::SourceManager &SM);
 
+    bool shouldAddReference(const clang::VarDecl *LoopVar);
+    clang::SourceLocation findTypeEndLocation(const clang::VarDecl *LoopVar, clang::SourceManager &SM);
     clang::SourceLocation findLocationAfterParameters(const clang::CXXMethodDecl *Method, clang::SourceManager &SM);
     clang::SourceLocation findClosingParenAfter(clang::SourceLocation start, clang::SourceManager &SM);
 
