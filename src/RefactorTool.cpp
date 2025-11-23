@@ -151,6 +151,9 @@ void RefactorHandler::handle_miss_override(const CXXMethodDecl *Method, Diagnost
     if (!SM.isInMainFile(Method->getLocation())) {
         return;
     }
+    if (isa<CXXDestructorDecl>(Method)) {
+        return;
+    }
     if (Method->size_overridden_methods() == 0 || Method->hasAttr<OverrideAttr>()) {
         return;
     }
