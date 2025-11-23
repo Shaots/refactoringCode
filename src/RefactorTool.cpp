@@ -27,8 +27,7 @@ void RefactorHandler::run(const MatchFinder::MatchResult &Result) {
         handle_nv_dtor(Dtor, Diag, SM);
     }
 
-    if (const auto *Method = Result.Nodes.getNodeAs<CXXMethodDecl>("methodDecl");
-        Method && Method->size_overridden_methods() > 0 && !Method->hasAttr<OverrideAttr>()) {
+    if (const auto *Method = Result.Nodes.getNodeAs<CXXMethodDecl>("missingOverride")) {
         handle_miss_override(Method, Diag, SM);
     }
 
@@ -37,7 +36,6 @@ void RefactorHandler::run(const MatchFinder::MatchResult &Result) {
     }
 }
 
-// todo: необходимо реализовать обработку случая невиртуального деструктора
 void RefactorHandler::handle_nv_dtor(const CXXDestructorDecl *Dtor, DiagnosticsEngine &Diag, SourceManager &SM) {
     if (!SM.isInMainFile(Dtor->getLocation())) {
         return;
@@ -59,11 +57,60 @@ void RefactorHandler::handle_nv_dtor(const CXXDestructorDecl *Dtor, DiagnosticsE
     Diag.Report(Dtor->getLocation(), DiagID);
 }
 
-// todo: необходимо реализовать обработку случая отсутствие override
+SourceLocation RefactorHandler::findClosingParenAfter(SourceLocation start, SourceManager &SM) {
+    StringRef fileContent = SM.getBufferData(SM.getFileID(start));
+    const char *bufferStart = fileContent.data();
+    const char *current = SM.getCharacterData(start);
+    const char *bufferEnd = bufferStart + fileContent.size();
+
+    while (current < bufferEnd && (*current == ' ' || *current == '\t' || *current == '\n' || *current == '\r')) {
+        current++;
+    }
+
+    while (current < bufferEnd) {
+        if (*current == ')') {
+            return start.getLocWithOffset(current - SM.getCharacterData(start) + 1);
+        }
+        current++;
+    }
+
+    return SourceLocation();
+}
+
+SourceLocation RefactorHandler::findLocationAfterParameters(const CXXMethodDecl *Method, SourceManager &SM) {
+    if (Method->param_empty()) {
+        // Если нет параметров, ищем закрывающую скобку после имени метода
+        SourceLocation nameEnd = Method->getNameInfo().getEndLoc();
+        if (!nameEnd.isValid())
+            return SourceLocation();
+
+        return findClosingParenAfter(nameEnd, SM);
+    } else {
+        // Если есть параметры, берем конец последнего параметра
+        const ParmVarDecl *lastParam = Method->getParamDecl(Method->getNumParams() - 1);
+        SourceLocation lastParamEnd = lastParam->getEndLoc();
+        if (!lastParamEnd.isValid())
+            return SourceLocation();
+
+        return findClosingParenAfter(lastParamEnd, SM);
+    }
+}
+
 void RefactorHandler::handle_miss_override(const CXXMethodDecl *Method, DiagnosticsEngine &Diag, SourceManager &SM) {
-    // Реализуйте Ваш код ниже
-    const unsigned DiagID = Diag.getCustomDiagID(DiagnosticsEngine::Remark, "Объявлен метод");
-    Diag.Report(Method->getLocation(), DiagID);
+    if (!SM.isInMainFile(Method->getLocation())) {
+        return;
+    }
+    if (Method->size_overridden_methods() == 0 || Method->hasAttr<OverrideAttr>()) {
+        return;
+    }
+    SourceLocation InsertLoc = findLocationAfterParameters(Method, SM);
+    if (!InsertLoc.isValid()) {
+        return;
+    }
+    Rewrite.InsertTextAfter(InsertLoc, " override");
+    const unsigned DiagID = Diag.getCustomDiagID(DiagnosticsEngine::Remark, "Добавлен override к методу '%0'");
+    auto DB = Diag.Report(Method->getLocation(), DiagID);
+    DB << Method->getNameAsString();
 }
 
 // todo: необходимо реализовать обработку случая отсутствие & в range-for
@@ -83,7 +130,6 @@ void RefactorHandler::handle_crange_for(const VarDecl *LoopVar, DiagnosticsEngin
     }
 */
 auto NvDtorMatcher() {
-    // todo: замените код ниже, на свою реализацию, необходимо реализовать матчеры для поиска невиртуальных деструкторов
     return cxxDestructorDecl(unless(isVirtual()),
                              hasParent(cxxRecordDecl(hasDescendant(cxxRecordDecl()),  // Класс имеет наследников
                                                      unless(isFinal())                // Исключаем final классы
@@ -91,10 +137,7 @@ auto NvDtorMatcher() {
         .bind("classDecl");
 }
 
-auto NoOverrideMatcher() {
-    // todo: замените код ниже, на свою реализацию, необходимо реализовать матчеры для поиска методов без override
-    return cxxMethodDecl().bind("methodDecl");
-}
+auto NoOverrideMatcher() { return cxxMethodDecl(isOverride(), unless(isImplicit())).bind("methodDecl"); }
 
 auto NoRefConstVarInRangeLoopMatcher() {
     // todo: замените код ниже, на свою реализацию, необходимо реализовать матчеры для поиска range-for без &
