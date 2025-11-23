@@ -6,7 +6,7 @@
 #include "clang/Tooling/Refactoring.h"
 #include "clang/Tooling/Tooling.h"
 #include "llvm/Support/CommandLine.h"
-
+#include <fstream>
 #include <unordered_set>
 
 #include "RefactorTool.h"
@@ -235,9 +235,7 @@ auto NvDtorMatcher() {
 auto NoOverrideMatcher() { return cxxMethodDecl(isOverride(), unless(isImplicit())).bind("missingOverride"); }
 
 auto NoRefConstVarInRangeLoopMatcher() {
-    return varDecl(hasParent(cxxForRangeStmt()), hasType(isConstQualified()), unless(hasType(referenceType())),
-                   unless(hasType(isInteger())), unless(hasType(realFloatingPointType())),
-                   unless(hasType(booleanType())))
+    return varDecl(hasAncestor(cxxForRangeStmt()), hasType(isConstQualified()), unless(hasType(referenceType())))
         .bind("loopVar");
 }
 
