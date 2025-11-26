@@ -48,7 +48,7 @@ void RefactorHandler::handle_nv_dtor(const clang::CXXRecordDecl *Base, clang::Di
     if (Dtor->isVirtual())
         return;
 
-    if (!SM.isInMainFile(Base->getBeginLoc()))
+    if (!SM.isInMainFile(Base->getLocation()))
         return;
 
     SourceLocation ClassBegin = Base->getBeginLoc();
@@ -77,7 +77,7 @@ void RefactorHandler::handle_nv_dtor(const clang::CXXRecordDecl *Base, clang::Di
     const char *found = nullptr;
     // Find "~ClassName"
     const char *p = StartPtr;
-    while (p + (ptrdiff_t)needle.size() <= EndPtr) {
+    while (p + static_cast<ptrdiff_t>(needle.size()) <= EndPtr) {
         if (p[0] == '~') {
             if (strncmp(p, needle.c_str(), needle.size()) == 0) {
                 found = p;
@@ -232,7 +232,10 @@ auto NvDtorMatcher() {
     return cxxRecordDecl(isDerivedFrom(cxxRecordDecl(unless(isFinal())).bind("baseClass"))).bind("derivedClass");
 }
 
-auto NoOverrideMatcher() { return cxxMethodDecl(isOverride(), unless(isImplicit())).bind("missingOverride"); }
+auto NoOverrideMatcher() {
+    return cxxMethodDecl(isOverride(), unless(hasAttr(attr::Kind::Override)), unless(isImplicit()))
+        .bind("missingOverride");
+}
 
 auto NoRefConstVarInRangeLoopMatcher() {
     return varDecl(hasAncestor(cxxForRangeStmt()), hasType(isConstQualified()), unless(hasType(referenceType())))

@@ -8,7 +8,9 @@
 
 using namespace std::string_literals;
 namespace fs = std::filesystem;
-
+fs::path current_file_path(__FILE__);
+fs::path current_directory = current_file_path.remove_filename();
+fs::path working_directory = current_directory.parent_path().parent_path();
 // helper function for wirte content to file
 void write_file(const fs::path &path, const std::string &content) { std::ofstream(path) << content; }
 
@@ -21,7 +23,8 @@ std::string get_file_contents(const fs::path &path) {
 }
 
 std::string run_refactor_tool(const fs::path &path) {
-    auto cmd = "./refactor_tool "s + path.string() + " --"s;
+    std::string cmd = working_directory.string() + "/build/refactor_tool "s + path.string() + " --"s;
+    std::cout << cmd.c_str() << std::endl;
     int rc = system(cmd.c_str());
     EXPECT_EQ(rc, 0) << "failed to run refactor_tool";
 
@@ -31,18 +34,10 @@ std::string run_refactor_tool(const fs::path &path) {
     return content;
 }
 
-// Get refactored content from test file
-std::string get_refactored_file_contents(const std::string &test_name) {
-    auto src_file = fs::path{"../tests/tests_data/"s + test_name + ".cpp"s};
-    auto tmp_file = fs::path{"../tests/tests_data/tmp/"s + test_name + "_tmp.cpp"s};
-    fs::copy_file(src_file, tmp_file, fs::copy_options::overwrite_existing);
-
-    return run_refactor_tool(tmp_file);
-}
-
 // Get refactored content
 std::string get_refactored_contents(const std::string &content) {
-    auto tmp_file = fs::path{"../tests/tests_data/tmp/tmp.cpp"s};
+    fs::path relative_path("tests_data/tmp/test.cpp"s);
+    std::filesystem::path tmp_file = current_directory / relative_path;
     write_file(tmp_file, content);
     return run_refactor_tool(tmp_file);
 }
