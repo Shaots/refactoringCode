@@ -114,10 +114,6 @@ SourceLocation RefactorHandler::findClosingParenAfter(SourceLocation start, Sour
     const char *current = SM.getCharacterData(start);
     const char *bufferEnd = bufferStart + fileContent.size();
 
-    while (current < bufferEnd && (*current == ' ' || *current == '\t' || *current == '\n' || *current == '\r')) {
-        current++;
-    }
-
     while (current < bufferEnd) {
         if (*current == ')') {
             return start.getLocWithOffset(current - SM.getCharacterData(start) + 1);
